@@ -17,11 +17,11 @@
 # under the License.
 
 """
-Add index for dag_run, logical_date, run_type to DagRun.
+Add index on dag_run for dag_id, logical_date, and run_type.
 
-Revision ID: 7cb5fa064991
-Revises: f8c9d7e6b5a4
-Create Date: 2026-02-18 16:32:17.494524
+Revision ID: cecf8e022bd6
+Revises: a4c2d171ae18
+Create Date: 2026-04-06 16:38:57.936160
 
 """
 
@@ -30,23 +30,24 @@ from __future__ import annotations
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "7cb5fa064991"
-down_revision = "f8c9d7e6b5a4"
+revision = "cecf8e022bd6"
+down_revision = "a4c2d171ae18"
 branch_labels = None
 depends_on = None
-airflow_version = "3.2.0"
+airflow_version = "3.3.0"
 
 
 def upgrade():
-    """Add index for dag_run, logical_date, run_type to DagRun."""
-    op.create_index(
-        "idx_dag_run_dag_id_logical_date_run_type",
-        "dag_run",
-        ["dag_id", "logical_date", "run_type"],
-        unique=False,
-    )
+    """Add index on dag_run for dag_id, logical_date, and run_type."""
+    with op.batch_alter_table("dag_run", schema=None) as batch_op:
+        batch_op.create_index(
+            "idx_dag_run_dag_id_logical_date_run_type",
+            ["dag_id", "logical_date", "run_type"],
+            unique=False,
+        )
 
 
 def downgrade():
-    """Revert index for dag_run, logical_date, run_type on DagRun."""
-    op.drop_index("idx_dag_run_dag_id_logical_date_run_type", table_name="dag_run")
+    """Remove index on dag_run for dag_id, logical_date, and run_type."""
+    with op.batch_alter_table("dag_run", schema=None) as batch_op:
+        batch_op.drop_index("idx_dag_run_dag_id_logical_date_run_type")
