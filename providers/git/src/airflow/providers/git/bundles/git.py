@@ -142,7 +142,7 @@ class GitDagBundle(BaseDagBundle):
     def _initialize(self):
         with self.lock():
             # Avoids re-cloning on every task run when:
-            # 1. A pruned worktree already exists (prune_dotgit_folder=True)
+            # 1. A versioned worktree already exists on disk without a .git directory
             # 2. The local repo already has the expected version
             if self._is_pruned_worktree():
                 self._log.debug(
@@ -157,16 +157,32 @@ class GitDagBundle(BaseDagBundle):
                     repo_path=self.repo_path,
                     version=self.version,
                 )
-                # Assign self.repo so get_current_version() returns the resolved
-                # HEAD hexsha rather than the raw self.version (which may be a
-                # tag or short SHA).
-                if not self.prune_dotgit_folder:
+                try:
+                    repo = Repo(self.repo_path)
+                except (InvalidGitRepositoryError, NoSuchPathError, GitCommandError) as e:
+                    self._log.debug(
+                        "Falling back to clone path after failing to reopen local repo",
+                        repo_path=self.repo_path,
+                        version=self.version,
+                        exc=e,
+                    )
+                else:
                     try:
-                        self.repo = Repo(self.repo_path)
-                        self.repo.close()
-                    except InvalidGitRepositoryError as e:
-                        raise RuntimeError(f"Invalid git repository at {self.repo_path}") from e
-                return
+                        # Discard any working-tree mutations a previous task left behind
+                        # so the bundle is the clean state callers expect.
+                        repo.git.reset("--hard", "HEAD")
+                        repo.git.clean("-fd")
+                    finally:
+                        repo.close()
+                    if self.prune_dotgit_folder:
+                        shutil.rmtree(self.repo_path / ".git")
+                        self.repo = None
+                    else:
+                        # Assign self.repo so get_current_version() returns the resolved
+                        # HEAD hexsha rather than the raw self.version (which may be a
+                        # tag or short SHA).
+                        self.repo = repo
+                    return
 
             cm = self.hook.configure_hook_env() if self.hook else nullcontext()
             with cm:

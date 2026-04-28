@@ -458,6 +458,72 @@ class TestGitDagBundle:
             mock_clone.assert_not_called()
         assert bundle2.get_current_version() == hexsha
 
+    @mock.patch("airflow.providers.git.bundles.git.GitHook")
+    def test_skip_path_cleans_dirty_working_tree(self, mock_githook, git_repo):
+        """The fast-path discards working-tree mutations left by previous task runs."""
+        repo_path, repo = git_repo
+        mock_githook.return_value.repo_url = repo_path
+        version = repo.head.commit.hexsha
+        bundle_name = "test_dirty_tree"
+
+        bundle1 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version=version,
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=False,
+        )
+        bundle1.initialize()
+
+        # Simulate a dirty tree: modify a tracked file and add an untracked file.
+        tracked = bundle1.repo_path / "test_dag.py"
+        tracked.write_text("mutated by a previous task")
+        untracked = bundle1.repo_path / "leftover.txt"
+        untracked.write_text("leftover")
+
+        bundle2 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version=version,
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=False,
+        )
+        bundle2.initialize()
+
+        # Tracked file is restored, untracked file is removed.
+        assert tracked.read_text() != "mutated by a previous task"
+        assert not untracked.exists()
+
+    @mock.patch("airflow.providers.git.bundles.git.GitHook")
+    def test_skip_path_prunes_dotgit_when_config_flipped(self, mock_githook, git_repo):
+        """If prune_dotgit_folder is True but a prior run left .git intact, the fast-path prunes it."""
+        repo_path, repo = git_repo
+        mock_githook.return_value.repo_url = repo_path
+        version = repo.head.commit.hexsha
+        bundle_name = "test_prune_flip"
+
+        # First init keeps .git
+        bundle1 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version=version,
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=False,
+        )
+        bundle1.initialize()
+        assert (bundle1.repo_path / ".git").exists()
+
+        # Second init flips config to prune; fast-path should honor it
+        bundle2 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version=version,
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=True,
+        )
+        bundle2.initialize()
+        assert not (bundle2.repo_path / ".git").exists()
+
     @pytest.mark.parametrize(
         "amend",
         [
