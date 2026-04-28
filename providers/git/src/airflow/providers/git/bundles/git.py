@@ -157,6 +157,15 @@ class GitDagBundle(BaseDagBundle):
                     repo_path=self.repo_path,
                     version=self.version,
                 )
+                # Assign self.repo so get_current_version() returns the resolved
+                # HEAD hexsha rather than the raw self.version (which may be a
+                # tag or short SHA).
+                if not self.prune_dotgit_folder:
+                    try:
+                        self.repo = Repo(self.repo_path)
+                        self.repo.close()
+                    except InvalidGitRepositoryError as e:
+                        raise RuntimeError(f"Invalid git repository at {self.repo_path}") from e
                 return
 
             cm = self.hook.configure_hook_env() if self.hook else nullcontext()

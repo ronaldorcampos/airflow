@@ -421,6 +421,43 @@ class TestGitDagBundle:
         # Same bundle config but now HEAD doesn't match version — should return False
         assert bundle._local_repo_has_version() is False
 
+    @mock.patch("airflow.providers.git.bundles.git.GitHook")
+    def test_skip_path_resolves_hexsha_when_version_is_tag(self, mock_githook, git_repo):
+        """When the skip path is taken and version is a tag, get_current_version() returns the resolved hexsha."""
+        repo_path, repo = git_repo
+        mock_githook.return_value.repo_url = repo_path
+        hexsha = repo.head.commit.hexsha
+        repo.create_tag("v1.0")
+
+        bundle_name = "test_tag_resolution"
+
+        bundle1 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version="v1.0",
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=False,
+        )
+        bundle1.initialize()
+        assert bundle1.get_current_version() == hexsha
+
+        # Re-initialize: should take the skip path but still resolve to hexsha
+        bundle2 = GitDagBundle(
+            name=bundle_name,
+            git_conn_id=CONN_HTTPS,
+            version="v1.0",
+            tracking_ref=GIT_DEFAULT_BRANCH,
+            prune_dotgit_folder=False,
+        )
+        with (
+            patch.object(GitDagBundle, "_clone_bare_repo_if_required") as mock_bare_clone,
+            patch.object(GitDagBundle, "_clone_repo_if_required") as mock_clone,
+        ):
+            bundle2.initialize()
+            mock_bare_clone.assert_not_called()
+            mock_clone.assert_not_called()
+        assert bundle2.get_current_version() == hexsha
+
     @pytest.mark.parametrize(
         "amend",
         [
